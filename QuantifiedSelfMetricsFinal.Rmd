@@ -1,0 +1,242 @@
+---
+title: "Predicting the Quantified self"
+author: "Patrick Osoro"
+date: "Saturday, September 17, 2016"
+output:
+  html_document:
+    toc: yes
+  graphics: yes
+  pdf_document:
+    latex_engine: xelatex
+    toc: yes
+    toc_depth: 2
+---
+
+
+#Background#
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement â a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+#Project Goal
+In this project, the goal was to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which the participants did the exercise. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.It is the classe varaible in the dataset, and one can use any of the other variables to predict classe. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+#Synopsis 
+
+The results  obtained by using random forest modeling technique were highly accurate on the testing set achieving accuracy of 100% and kappa of 1, while those resulting from devcision tree model had accuracy of 76% and kappa of 0.7. Based on these results the Random forest classification technique works better than desicion tree in this case in predicting the manner in which the participants did the exercise.
+
+
+#Set environment variables
+
+```{r global_options,cache=TRUE,warning=FALSE,message=FALSE,error=FALSE, collapse=TRUE}
+    knitr::opts_chunk$set(fig.width=12, fig.height=8, fig.path='Figs/', Sys.setlocale(category = "LC_ALL", locale = "en_SE.utf8"),message = FALSE, warning = FALSE )
+    invisible(dev.off())
+```
+  
+
+```{r}
+    library(knitr)
+    opts_chunk$set(tidy.opts=list(width.cutoff=80))
+    devtools::install_github("rstudio/rmarkdown")
+```
+
+
+#Load necessary R libraries
+
+```{r}
+library(caret)
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+library(ggplot2)
+library(rattle)
+library(Hmisc)
+library(plyr)
+library(AppliedPredictiveModeling)
+
+```
+
+#Data Processing#
+
+
+*Data sources*
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+*Load the training and testing data sets*
+
+*Import the data treating empty values as NA.*
+
+
+```{r}
+set.seed(10000)
+trainUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+trainingSet <- read.csv(url(trainUrl), na.strings=c("NA","#DIV/0!",""))
+testingSet <- read.csv(url(testUrl), na.strings=c("NA","#DIV/0!",""))
+
+#Explore features and data values
+
+dim(trainingSet) 
+dim(testingSet)
+
+
+#validate that training set and test set are from same sets i.e if similar in terms of column names
+#colnames(trainingSet)
+#colnames(testingSet)
+colnames_train <- colnames(trainingSet)
+colnames_test <- colnames(testingSet)
+
+all.equal(colnames_train[1:length(colnames_train)-1], colnames_test[1:length(colnames_train)-1])
+#The datasets have same columns
+#head(trainingSet)
+#head(testingSet)
+```
+
+
+The training set has `r nrow(trainingSet)` observations and `r ncol(trainingSet)` variables while the testing sets has `r nrow(testingSet)` observations and `r ncol(testingSet)` variables.
+
+The training sets and testing set have same column names.
+
+
+
+#Data Cleaning
+
+There were 9 variables that consist of only 0 or NA, namely, kurtosis_yaw_belt, kurtosis_yaw_dumbbell, kurtosis_yaw_forearm, skewness_yaw_belt, skewness_yaw_dumbbell, skewness_yaw_forearm, amplitude_yaw_belt, amplitude_yaw_dumbbell, and amplitude_yaw_forearm. We know those variables will not help in terms of classification, so they were removed.
+
+
+```{r}
+#Delete columns with missing values
+trainingSet <- trainingSet[, colSums(is.na(trainingSet)) == 0]
+testingSet <- testingSet[, colSums(is.na(testingSet)) == 0]
+
+
+#Remove the first seven predictors since these variables have little predicting power for the outcome variable classe*
+
+NewtrainingSet <- trainingSet[, -c(1:7)]
+NewtestingSet <- testingSet[, -c(1:7)]
+dim(NewtrainingSet); dim(NewtestingSet)
+```
+
+The cleaned  Newtrainingset has `r ncol(NewtrainingSet)` variables.
+
+The cleaned NewtestingSet has `r ncol(NewtestingSet)` variables.
+
+
+#Split training set to create a validation set of 40% of the training data set
+
+Split the cleaned training set into a pure training data set (60%) and a validation data set (40%). The validation data set will be used to conduct cross validation.
+
+```{r}
+set.seed(10000)
+inTrain <- createDataPartition(NewtrainingSet$classe, p=0.6, list=FALSE)
+
+NewtrainingSet <- NewtrainingSet[inTrain, ]
+validationSet <- NewtrainingSet[-inTrain, ]
+
+dim(NewtrainingSet); dim(validationSet)
+
+```
+
+#Tree Vizualization
+
+```{r}
+treeModel <- rpart(classe ~ ., data=NewtrainingSet, method="class")
+prp(treeModel) # plot of Tree Model
+```
+
+
+
+#Prediction Algorithms
+
+####Predicting with Decision Trees
+
+One can use classification trees and random forests to predict the outcome.
+Requires library(e1071)
+
+```{r}
+set.seed(10000)
+library(e1071)
+modelFit1 <- rpart(classe ~ ., data=NewtrainingSet, method="class")
+fancyRpartPlot(modelFit1)
+
+#------------------------------------------------------------------------
+prediction1 <- predict(modelFit1, validationSet, type = "class")
+
+```
+
+Using confusion Matrix to test results:
+
+```{r}
+    confusionMatrix(prediction1, validationSet$classe)
+```
+
+
+####Predicting with Random forests
+
+```{r}
+modelFit2 <- randomForest(classe ~. , data=NewtrainingSet)
+```
+
+Predicting in-sample error:
+
+```{r}
+prediction2 <- predict(modelFit2, validationSet, type = "class")
+```
+
+Using confusion Matrix to test results:
+
+```{r}
+confusionMatrix(prediction2, validationSet$classe)
+
+#Summary results
+
+#accuracy
+accuracy <- postResample(prediction2, validationSet$classe)
+accuracy
+#sample error
+error <- 1 - as.numeric(confusionMatrix(validationSet$classe, prediction2)$overall[1])
+error
+
+```
+
+Accuracy of this prediction model is 100% using the validation set
+
+Out of Sample Error is 0%. 
+
+The out of sample error is just the error rate that we get when we apply the classification model on a new data set.
+
+
+
+#Predicting using original Test Data
+
+Apply the model to the original testing data set downloaded from the data source. Generate "problem_id_x.txt" Files for the assignments. These generated individual files are stored in working directory.
+
+
+```{r}
+Testprediction <- predict(modelFit2, NewtestingSet)
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pml_write_files(Testprediction)
+
+```
+
+Loaded these files as per Problem_id number into Project Assignment and obtained the correct results for all 20 cases.
+
+
+#Conclusion
+
+The results  obtained by using random forest technique were highly accurate on the testing set achieving accuracy of 100% and kappa of 1, while those resulting from devcision tree model had accuracy of 76% and kappa of 0.7. Based on these results the Random forest classification technique works better than desicion tree in this case.
+
+
+
